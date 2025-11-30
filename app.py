@@ -161,6 +161,27 @@ def generate_images_from_post(client: genai.Client, topic: str, tone: str, count
     return images
 
 
+def generate_seo_page(client: genai.Client, store_name: str, topic: str, tone: str, words: int, keywords: str) -> str:
+    kw_part = f"Keyword target: {keywords}." if keywords.strip() else ""
+    prompt = (
+        f"Sei un SEO writer. Genera una pagina per il sito sulla richiesta: {topic}. "
+        f"Tono: {tone}. Lunghezza circa {words} parole. {kw_part} "
+        "Usa solo info corrette dai documenti. Formatta così: \n"
+        "- Title (<60 caratteri)\n"
+        "- Meta description (<155 caratteri)\n"
+        "- H1\n"
+        "- H2/H3 suggeriti\n"
+        "- Corpo testo strutturato con paragrafi brevi e CTA finale.\n"
+    )
+    tool = Tool(file_search=FileSearch(file_search_store_names=[store_name]))
+    response = client.models.generate_content(
+        model=MODEL_NAME,
+        contents=prompt,
+        config={"tools": [tool]},
+    )
+    return response.text if hasattr(response, "text") else str(response)
+
+
 def main() -> None:
     st.title("RAG locale con Gemini File Search")
     st.write("Carica documenti e fai domande senza uscire dal browser.")
@@ -226,6 +247,22 @@ def main() -> None:
                                 st.image(base64.b64decode(b64))
                             except Exception:
                                 pass
+            except Exception as exc:
+                st.error(f"Errore: {exc}")
+
+    st.divider()
+
+    st.subheader("Genera pagina SEO (RAG)")
+    seo_topic = st.text_input("Tema/servizio da descrivere", placeholder="Es. Visita ortodontica per adulti")
+    seo_keywords = st.text_input("Keyword target (opzionale, separa con virgola)", placeholder="parola chiave 1, parola chiave 2")
+    seo_tone = st.selectbox("Tono", ["professionale", "informale", "ispirazionale", "tecnico"], index=0, key="seo_tone")
+    seo_words = st.slider("Lunghezza (parole circa)", 200, 1000, 500, step=50, key="seo_words")
+    if st.button("Genera pagina SEO", type="primary", disabled=not seo_topic.strip()):
+        with st.spinner("Genero la pagina SEO..."):
+            try:
+                seo_text = generate_seo_page(client, store_name, seo_topic.strip(), seo_tone, seo_words, seo_keywords)
+                st.success("Bozza pagina SEO")
+                st.write(seo_text)
             except Exception as exc:
                 st.error(f"Errore: {exc}")
 
