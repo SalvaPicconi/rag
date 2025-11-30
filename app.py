@@ -148,23 +148,14 @@ def generate_images_from_post(client: genai.Client, topic: str, tone: str, count
         result = client.models.generate_images(
             model=IMAGE_MODEL,
             prompt=prompt,
-            number_of_images=count,
+            config={"number_of_images": count},
         )
         # Try to extract base64 data from possible fields
-        if hasattr(result, "images"):
-            for img in result.images:
-                data = getattr(img, "base64_data", None)
-                if data:
-                    images.append(data)
-                else:
-                    inline = getattr(img, "inline_data", None)
-                    if inline and getattr(inline, "data", None):
-                        images.append(inline.data)
-        elif hasattr(result, "generated_images"):
-            for img in result.generated_images:
-                data = getattr(img, "data", None)
-                if data:
-                    images.append(data)
+        if hasattr(result, "generated_images") and result.generated_images:
+            for gi in result.generated_images:
+                img = getattr(gi, "image", None)
+                if img and getattr(img, "image_bytes", None):
+                    images.append(base64.b64encode(img.image_bytes).decode("utf-8"))
     except Exception as exc:
         st.warning(f"Impossibile generare immagini: {exc}")
     return images
