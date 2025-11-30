@@ -117,6 +117,8 @@ def generate_social_posts(client: genai.Client, store_name: str, topic: str, pla
         "LinkedIn": "struttura: titolo accroccato + 3-5 bullet brevi + call-to-action finale. Stile professionale, ma umano.",
         "Instagram": "struttura: hook iniziale breve, corpo con 3-4 frasi, chiusura con CTA. Linguaggio semplice, emoticon moderate.",
         "X/Twitter": "struttura: singolo post conciso, massimo 40-60 parole, con hook e CTA breve.",
+        "Facebook Page": "struttura: hook iniziale + corpo di 3-5 frasi con benefit chiari + CTA. Linguaggio accessibile.",
+        "Facebook Group": "struttura: domanda iniziale o spunto per la community, 2-3 frasi di contesto, invito alla discussione. Stile conversazionale.",
     }
     tags_hint = "Includi 3-5 hashtag pertinenti alla fine." if hashtags else "Non inserire hashtag."
     prompt = (
@@ -210,7 +212,7 @@ def main() -> None:
     topic = st.text_input("Tema o richiesta", placeholder="Es. riassumi il documento e crea un post")
     col1, col2, col3 = st.columns(3)
     with col1:
-        platform = st.selectbox("Piattaforma", ["LinkedIn", "Instagram", "X/Twitter"])
+        platform = st.selectbox("Piattaforma", ["LinkedIn", "Instagram", "X/Twitter", "Facebook Page", "Facebook Group"])
     with col2:
         tone = st.selectbox("Tono", ["professionale", "informale", "ispirazionale", "tecnico"])
     with col3:
