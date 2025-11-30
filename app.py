@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import base64
 import tempfile
 import mimetypes
 import time
@@ -12,6 +13,7 @@ from google.genai.types import DocumentState, FileSearch, Tool
 
 STORE_FILE = Path("store_name.txt")
 MODEL_NAME = "gemini-2.5-flash"
+IMAGE_MODEL = "imagen-3.0"
 
 
 @st.cache_resource
@@ -23,6 +25,9 @@ def get_client() -> genai.Client:
 
 
 def get_or_create_store(client: genai.Client) -> str:
+    env_store = os.environ.get("STORE_NAME")
+    if env_store:
+        return env_store
     if STORE_FILE.exists():
         name = STORE_FILE.read_text(encoding="utf-8").strip()
         if name:
@@ -131,6 +136,38 @@ def generate_social_posts(client: genai.Client, store_name: str, topic: str, pla
     return response.text if hasattr(response, "text") else str(response)
 
 
+def generate_images_from_post(client: genai.Client, topic: str, tone: str, count: int = 2) -> list[str]:
+    prompt = (
+        f"Simple social media illustration for this topic: {topic}. "
+        f"Tone: {tone}. Style: clean, readable, minimal text, flat colors."
+    )
+    images: list[str] = []
+    try:
+        result = client.models.generate_images(
+            model=IMAGE_MODEL,
+            prompt=prompt,
+            number_of_images=count,
+        )
+        # Try to extract base64 data from possible fields
+        if hasattr(result, "images"):
+            for img in result.images:
+                data = getattr(img, "base64_data", None)
+                if data:
+                    images.append(data)
+                else:
+                    inline = getattr(img, "inline_data", None)
+                    if inline and getattr(inline, "data", None):
+                        images.append(inline.data)
+        elif hasattr(result, "generated_images"):
+            for img in result.generated_images:
+                data = getattr(img, "data", None)
+                if data:
+                    images.append(data)
+    except Exception as exc:
+        st.warning(f"Impossibile generare immagini: {exc}")
+    return images
+
+
 def main() -> None:
     st.title("RAG locale con Gemini File Search")
     st.write("Carica documenti e fai domande senza uscire dal browser.")
@@ -179,6 +216,7 @@ def main() -> None:
     with col3:
         words = st.slider("Lunghezza (parole circa)", 40, 200, 90, step=10)
     hashtags = st.checkbox("Aggiungi hashtag", value=True)
+    gen_images = st.checkbox("Genera immagini", value=False)
 
     if st.button("Genera post", type="primary", disabled=not topic.strip()):
         with st.spinner("Genero i post..."):
@@ -186,6 +224,15 @@ def main() -> None:
                 posts = generate_social_posts(client, store_name, topic.strip(), platform, tone, words, hashtags)
                 st.success("Bozze generate")
                 st.write(posts)
+                if gen_images:
+                    imgs = generate_images_from_post(client, topic.strip(), tone, count=2)
+                    if imgs:
+                        st.subheader("Immagini generate")
+                        for b64 in imgs:
+                            try:
+                                st.image(base64.b64decode(b64))
+                            except Exception:
+                                pass
             except Exception as exc:
                 st.error(f"Errore: {exc}")
 
