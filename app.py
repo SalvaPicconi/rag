@@ -112,7 +112,28 @@ def reset_store(client: genai.Client) -> str:
     return store_name
 
 
-def generate_social_posts(client: genai.Client, store_name: str, topic: str, platform: str, tone: str, words: int, hashtags: bool) -> str:
+def list_documents(client: genai.Client, store_name: str):
+    try:
+        pager = client.file_search_stores.documents.list(parent=store_name)
+        return list(pager)
+    except Exception as exc:
+        st.warning(f"Impossibile elencare i documenti: {exc}")
+        return []
+
+
+def get_doc_names(client: genai.Client, store_name: str) -> list[str]:
+    docs = list_documents(client, store_name)
+    names: list[str] = []
+    for d in docs:
+        if getattr(d, "display_name", None):
+            names.append(d.display_name)
+        elif getattr(d, "name", None):
+            # usa solo il segmento finale
+            names.append(str(d.name).rsplit("/", 1)[-1])
+    return names
+
+
+def generate_social_posts(client: genai.Client, store_name: str, topic: str, platform: str, tone: str, words: int, hashtags: bool, doc_names: list[str] | None = None) -> str:
     platform_specs = {
         "LinkedIn": "struttura: titolo accroccato + 3-5 bullet brevi + call-to-action finale. Stile professionale, ma umano.",
         "Instagram": "struttura: hook iniziale breve, corpo con 3-4 frasi, chiusura con CTA. Linguaggio semplice, emoticon moderate.",
@@ -121,13 +142,17 @@ def generate_social_posts(client: genai.Client, store_name: str, topic: str, pla
         "Facebook Group": "struttura: domanda iniziale o spunto per la community, 2-3 frasi di contesto, invito alla discussione. Stile conversazionale.",
     }
     tags_hint = "Includi 3-5 hashtag pertinenti alla fine." if hashtags else "Non inserire hashtag."
+    sources_hint = ""
+    if doc_names:
+        sources_hint = f"Fonti disponibili: {', '.join(doc_names)}. Se usi info da queste, aggiungi una sezione 'Fonti:' con i nomi."
     prompt = (
         f"Sei un content strategist. Genera 2 varianti di post per {platform} "
         f"di circa {words} parole sul tema: {topic}. "
         f"Usa solo informazioni corrette dai documenti. "
         f"Adotta un tono {tone}. {platform_specs.get(platform, '')} {tags_hint} "
         "Evidenzia citazioni o dati rilevanti se presenti nei documenti. "
-        "Formatta in modo leggibile per l'utente finale."
+        "Formatta in modo leggibile per l'utente finale. "
+        f"{sources_hint}"
     )
     tool = Tool(file_search=FileSearch(file_search_store_names=[store_name]))
     response = client.models.generate_content(
@@ -161,8 +186,11 @@ def generate_images_from_post(client: genai.Client, topic: str, tone: str, count
     return images
 
 
-def generate_seo_page(client: genai.Client, store_name: str, topic: str, tone: str, words: int, keywords: str) -> str:
+def generate_seo_page(client: genai.Client, store_name: str, topic: str, tone: str, words: int, keywords: str, doc_names: list[str] | None = None) -> str:
     kw_part = f"Keyword target: {keywords}." if keywords.strip() else ""
+    sources_hint = ""
+    if doc_names:
+        sources_hint = f"Fonti disponibili: {', '.join(doc_names)}. Se usi info da queste, aggiungi una sezione 'Fonti:' con i nomi."
     prompt = (
         f"Sei un SEO writer. Genera una pagina per il sito sulla richiesta: {topic}. "
         f"Tono: {tone}. Lunghezza circa {words} parole. {kw_part} "
@@ -172,6 +200,7 @@ def generate_seo_page(client: genai.Client, store_name: str, topic: str, tone: s
         "- H1\n"
         "- H2/H3 suggeriti\n"
         "- Corpo testo strutturato con paragrafi brevi e CTA finale.\n"
+        f"{sources_hint}"
     )
     tool = Tool(file_search=FileSearch(file_search_store_names=[store_name]))
     response = client.models.generate_content(
@@ -196,6 +225,27 @@ def main() -> None:
         st.session_state["store_name"] = get_or_create_store(client)
     store_name = st.session_state["store_name"]
     st.caption(f"Store in uso: {store_name}")
+
+    with st.expander("Store e documenti", expanded=True):
+        env_store = os.environ.get("STORE_NAME")
+        if env_store:
+            st.info("Store fissato da variabile d'ambiente STORE_NAME (non modificabile da UI).")
+        else:
+            new_store = st.text_input("Imposta store esistente (opzionale)", value=store_name)
+            if st.button("Usa questo store", disabled=not new_store.strip()):
+                st.session_state["store_name"] = new_store.strip()
+                STORE_FILE.write_text(new_store.strip(), encoding="utf-8")
+                store_name = new_store.strip()
+                st.caption(f"Store in uso: {store_name}")
+        docs = list_documents(client, store_name)
+        st.caption(f"Store in uso: {store_name}")
+        st.write(f"Documenti nello store ({len(docs)}):")
+        if docs:
+            for d in docs:
+                state = getattr(d.state, "name", str(d.state)) if d.state is not None else ""
+                st.write(f"- {d.display_name or d.name} | stato: {state} | mime: {d.mime_type} | size: {d.size_bytes}")
+        else:
+            st.write("Nessun documento nello store.")
 
     with st.expander("Carica documento", expanded=True):
         if st.button("Crea nuovo store vuoto", help="Usa uno store nuovo per evitare risposte da documenti vecchi"):
@@ -235,7 +285,8 @@ def main() -> None:
     if st.button("Genera post", type="primary", disabled=not topic.strip()):
         with st.spinner("Genero i post..."):
             try:
-                posts = generate_social_posts(client, store_name, topic.strip(), platform, tone, words, hashtags)
+                doc_names = get_doc_names(client, store_name)
+                posts = generate_social_posts(client, store_name, topic.strip(), platform, tone, words, hashtags, doc_names)
                 st.success("Bozze generate")
                 st.write(posts)
                 if gen_images:
@@ -260,7 +311,8 @@ def main() -> None:
     if st.button("Genera pagina SEO", type="primary", disabled=not seo_topic.strip()):
         with st.spinner("Genero la pagina SEO..."):
             try:
-                seo_text = generate_seo_page(client, store_name, seo_topic.strip(), seo_tone, seo_words, seo_keywords)
+                doc_names = get_doc_names(client, store_name)
+                seo_text = generate_seo_page(client, store_name, seo_topic.strip(), seo_tone, seo_words, seo_keywords, doc_names)
                 st.success("Bozza pagina SEO")
                 st.write(seo_text)
             except Exception as exc:
