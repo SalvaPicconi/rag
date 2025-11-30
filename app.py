@@ -79,10 +79,11 @@ def upload_document(client: genai.Client, store_name: str, uploaded_file) -> Non
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         tmp.write(uploaded_file.getbuffer())
         tmp_path = tmp.name
+    display_name = Path(uploaded_file.name).name
     op = client.file_search_stores.upload_to_file_search_store(
         file_search_store_name=store_name,
         file=tmp_path,
-        config={"mime_type": mime_type},
+        config={"mime_type": mime_type, "display_name": display_name},
     )
     with st.status("Caricamento in corso...", expanded=True) as status:
         doc_name = wait_for_upload(client, op)
